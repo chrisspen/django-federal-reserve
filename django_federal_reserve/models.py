@@ -1,4 +1,5 @@
 import csv
+import gc
 import os
 import math
 import urllib2
@@ -7,7 +8,9 @@ import zipfile
 import dateutil.parser
 from datetime import date, timedelta
 
+import django
 from django.db import models
+from django.conf import settings
 
 from django_data_mirror.models import DataSource, ForeignKey
 
@@ -72,96 +75,113 @@ class FederalReserveDataSource(DataSource):
         """
         Reads the associated API and saves data to tables.
         """
-        if bulk:
-            local_fn = cls.download_bulk_data(fn=fn, no_download=no_download)
-            # Process CSV.
-            print 'Reading file...'
-            source = zipfile.ZipFile(local_fn, 'r')
-            total = len(source.open(s.BULK_INDEX_FN, 'r').readlines())
-            line_iter = iter(source.open(s.BULK_INDEX_FN, 'r'))
-            offset = 0
-            while 1:
-                try:
-                    line = line_iter.next()
-                    offset += 1
-                    #print 'line:',line.strip()
-                    if line.lower().startswith('series '):
-                        line_iter.next()
-                        offset += 1
-                        break
-                except StopIteration:
-                    break
-            total -= offset
-            i = 0
-            data = csv.DictReader(line_iter, delimiter=';')
-            for row in data:
-                i += 1
-                if i == 1 or not i % 100:
-                    print '(%i of %i)' % (i, total)
-                row = dict(
-                    (
-                        (k or '').strip().lower().replace(' ', '_'),
-                        (v or '').strip()
-                    )
-                    for k,v in row.iteritems()
-                )
-                if not row.get('file'):
-                    continue
-                row['id'] = row['file'].split('\\')[-1].split('.')[0]
-                del row['file']
-                row['last_updated'] = dateutil.parser.parse(row['last_updated']) if row['last_updated'] else None
-                #print row
-                series, _ = Series.objects.get_or_create(id=row['id'], defaults=row)
-
-            total = len(list(source.namelist()))
-            i = 0
-            for section_fn in source.namelist():
-            #for section_fn in ['FRED2_csv_2/data/4/4BIGEURORECP.csv']:
-                i += 1
-                if i == 1 or not i % 100:
-                    print '(%i of %i)' % (i, total)
-                if not section_fn.endswith('.csv'):
-                    continue
-                lines = source.open(section_fn, 'r').readlines()
-                series_id = section_fn.split('/')[-1].split('.')[0]
-                #print len(lines)
-                #print series_id
-                try:
-                    series = Series.objects.get(id=series_id)
-                    #print section_fn
-                except Series.DoesNotExist:
-                    continue
-                #print series
-                last_data = None
-                for row in csv.DictReader(source.open(section_fn, 'r')):
-                    row['date'] = dateutil.parser.parse(row['DATE'])
-                    row['date'] = date(row['date'].year, row['date'].month, row['date'].day)
-                    del row['DATE']
+        tmp_debug = settings.DEBUG
+        settings.DEBUG = False
+        django.db.transaction.enter_transaction_management()
+        django.db.transaction.managed(True)
+        
+        try:
+                
+            if bulk:
+                local_fn = cls.download_bulk_data(fn=fn, no_download=no_download)
+                # Process CSV.
+                print 'Reading file...'
+                source = zipfile.ZipFile(local_fn, 'r')
+                total = len(source.open(s.BULK_INDEX_FN, 'r').readlines())
+                line_iter = iter(source.open(s.BULK_INDEX_FN, 'r'))
+                offset = 0
+                while 1:
                     try:
-                        row['value'] = float(row['VALUE'])
-                    except ValueError:
-                        print 'Invalid value: "%s"' % (row['VALUE'],)
+                        line = line_iter.next()
+                        offset += 1
+                        #print 'line:',line.strip()
+                        if line.lower().startswith('series '):
+                            line_iter.next()
+                            offset += 1
+                            break
+                    except StopIteration:
+                        break
+                total -= offset
+                i = 0
+                data = csv.DictReader(line_iter, delimiter=';')
+                for row in data:
+                    i += 1
+                    row = dict(
+                        (
+                            (k or '').strip().lower().replace(' ', '_'),
+                            (v or '').strip()
+                        )
+                        for k,v in row.iteritems()
+                    )
+                    if not row.get('file'):
                         continue
-                    del row['VALUE']
+                    print 'Loading %s %.02f%% (%i of %i)...' % (row.get('file'), i/float(total)*100, i, total)
+                    row['id'] = row['file'].split('\\')[-1].split('.')[0]
+                    section_fn = row['file'] # FRED2_csv_2/data/4/4BIGEURORECP.csv
+                    del row['file']
+                    row['last_updated'] = dateutil.parser.parse(row['last_updated']) if row['last_updated'] else None
                     #print row
+                    series, _ = Series.objects.get_or_create(id=row['id'], defaults=row)
                     
-                    if s.EXPAND_DATA_TO_DAYS and last_data:
-                        while row['date'] > last_data.date:
-                            last_data.date += timedelta(days=1)
-                            Data.objects.get_or_create(
-                                series=series,
-                                date=last_data.date,
-                                defaults=dict(value=last_data.value),
-                            )
+                    if series.max_date and series.last_updated > (series.max_date - timedelta(days=30)):
+                        continue
+                    elif not section_fn.endswith('.csv'):
+                        continue
                     
-                    data, _ = Data.objects.get_or_create(series=series, date=row['date'], defaults=row)
-                    data.value = row['value']
-                    data.save()
-                    last_data = data
-        else:
-            #TODO:use API to download data for each series_id individually
-            #e.g. http://api.stlouisfed.org/fred/series/observations?series_id=DEXUSEU&api_key=<api_key>
-            todo 
+                    section_fn = 'FRED2_csv_2/data/' + section_fn.replace('\\', '/')
+                    #print 'section_fn:',section_fn
+                    lines = source.open(section_fn, 'r').readlines()
+                    last_data = None
+                    total2 = len(source.open(section_fn, 'r').readlines())
+                    i2 = 0
+                    for row in csv.DictReader(source.open(section_fn, 'r')):
+                        i2 += 1
+                        print '\r\tLine %.02f%% (%i of %i)' % (i2/float(total2)*100, i2, total2),
+                        row['date'] = dateutil.parser.parse(row['DATE'])
+                        row['date'] = date(row['date'].year, row['date'].month, row['date'].day)
+                        del row['DATE']
+                        try:
+                            row['value'] = float(row['VALUE'])
+                        except ValueError:
+                            print
+                            print 'Invalid value: "%s"' % (row['VALUE'],)
+                            continue
+                        del row['VALUE']
+                        #print row
+                        
+                        if s.EXPAND_DATA_TO_DAYS and last_data:
+                            while row['date'] > last_data.date:
+                                last_data.date += timedelta(days=1)
+                                Data.objects.get_or_create(
+                                    series=series,
+                                    date=last_data.date,
+                                    defaults=dict(value=last_data.value),
+                                )
+                        
+                        data, _ = Data.objects.get_or_create(series=series, date=row['date'], defaults=row)
+                        data.value = row['value']
+                        data.save()
+                        last_data = data
+                    print
+                        
+                    # Cleanup.
+                    django.db.transaction.commit()
+                    Series.objects.update()
+                    Data.objects.update()
+                    gc.collect()
+                    
+            else:
+                #TODO:use API to download data for each series_id individually
+                #e.g. http://api.stlouisfed.org/fred/series/observations?series_id=DEXUSEU&api_key=<api_key>
+                todo
+                
+        finally:
+            print "Committing..."
+            settings.DEBUG = tmp_debug
+            django.db.transaction.commit()
+            django.db.transaction.leave_transaction_management()
+            django.db.connection.close()
+            print "Committed."
         
     @classmethod
     def get_feeds(cls, bulk=False):
