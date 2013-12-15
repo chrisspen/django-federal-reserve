@@ -13,6 +13,12 @@ from django_data_mirror.models import DataSource, ForeignKey
 
 import settings as s
 
+try:
+    from admin_steroids.utils import StringWithTitle
+    APP_LABEL = StringWithTitle('django_federal_reserve', 'Federal Reserve')
+except ImportError:
+    APP_LABEL = 'django_federal_reserve'
+
 class FederalReserveDataSource(DataSource):
     """
     Generate or update the schema code by running:
@@ -92,10 +98,18 @@ class FederalReserveDataSource(DataSource):
                 i += 1
                 if i == 1 or not i % 100:
                     print '(%i of %i)' % (i, total)
-                row = dict((k.strip().lower().replace(' ', '_'),v.strip()) for k,v in row.iteritems())
+                row = dict(
+                    (
+                        (k or '').strip().lower().replace(' ', '_'),
+                        (v or '').strip()
+                    )
+                    for k,v in row.iteritems()
+                )
+                if not row.get('file'):
+                    continue
                 row['id'] = row['file'].split('\\')[-1].split('.')[0]
                 del row['file']
-                row['last_updated'] = dateutil.parser.parse(row['last_updated'])
+                row['last_updated'] = dateutil.parser.parse(row['last_updated']) if row['last_updated'] else None
                 #print row
                 series, _ = Series.objects.get_or_create(id=row['id'], defaults=row)
 
@@ -215,6 +229,8 @@ class Series(models.Model):
     
     class Meta:
         verbose_name_plural = 'series'
+        app_label = APP_LABEL
+        #db_table = 'federal_reserve_series'#TODO:ignored by south?!
     
     def __unicode__(self):
         #return u'<%s: %s>' % (type(self).__name__, self.id)
@@ -247,6 +263,8 @@ class Data(models.Model):
     
     class Meta:
         verbose_name_plural = 'data'
+        app_label = APP_LABEL
+        #db_table = 'federal_reserve_data'#TODO:ignored by south?!
         unique_together = (
             ('series', 'date'),
         )
