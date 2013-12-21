@@ -1,11 +1,12 @@
 import csv
-import gc
-import os
-import math
-import urllib2
-import shutil
-import zipfile
 import dateutil.parser
+import gc
+import math
+import os
+import shutil
+import sys
+import urllib2
+import zipfile
 from datetime import date, timedelta
 
 import django
@@ -86,6 +87,7 @@ class FederalReserveDataSource(DataSource):
                 local_fn = cls.download_bulk_data(fn=fn, no_download=no_download)
                 # Process CSV.
                 print 'Reading file...'
+                sys.stdout.flush()
                 source = zipfile.ZipFile(local_fn, 'r')
                 total = len(source.open(s.BULK_INDEX_FN, 'r').readlines())
                 line_iter = iter(source.open(s.BULK_INDEX_FN, 'r'))
@@ -116,6 +118,7 @@ class FederalReserveDataSource(DataSource):
                     if not row.get('file'):
                         continue
                     print 'Loading %s %.02f%% (%i of %i)...' % (row.get('file'), i/float(total)*100, i, total)
+                    sys.stdout.flush()
                     row['id'] = row['file'].split('\\')[-1].split('.')[0]
                     section_fn = row['file'] # FRED2_csv_2/data/4/4BIGEURORECP.csv
                     del row['file']
@@ -137,6 +140,7 @@ class FederalReserveDataSource(DataSource):
                     for row in csv.DictReader(source.open(section_fn, 'r')):
                         i2 += 1
                         print '\r\tLine %.02f%% (%i of %i)' % (i2/float(total2)*100, i2, total2),
+                        sys.stdout.flush()
                         row['date'] = dateutil.parser.parse(row['DATE'])
                         row['date'] = date(row['date'].year, row['date'].month, row['date'].day)
                         del row['DATE']
@@ -145,18 +149,32 @@ class FederalReserveDataSource(DataSource):
                         except ValueError:
                             print
                             print 'Invalid value: "%s"' % (row['VALUE'],)
+                            sys.stdout.flush()
                             continue
                         del row['VALUE']
                         #print row
                         
                         if s.EXPAND_DATA_TO_DAYS and last_data:
-                            while row['date'] > last_data.date:
-                                last_data.date += timedelta(days=1)
-                                Data.objects.get_or_create(
-                                    series=series,
-                                    date=last_data.date,
-                                    defaults=dict(value=last_data.value),
-                                )
+#                            while row['date'] > last_data.date:
+#                                last_data.date += timedelta(days=1)
+#                                Data.objects.get_or_create(
+#                                    series=series,
+#                                    date=last_data.date,
+#                                    defaults=dict(value=last_data.value),
+#                                )
+                            prior_series_dates = set(Data.objects.filter(
+                                series=series,
+                                date__gt=row['date'],
+                                date__lt=last_data.date,
+                            ).values_list('date', flat=True))
+                            intermediate_days = (row['date'] - last_data.date).days
+                            #print 'Expanding data to %i intermediate days...' % (intermediate_days,)
+                            sys.stdout.flush()
+                            Data.objects.bulk_create([
+                                Data(series=series, date=last_data.date+timedelta(days=_days), value=last_data.value)
+                                for _days in xrange(1, intermediate_days)
+                                if (last_data.date+timedelta(days=_days)) not in prior_series_dates
+                            ])
                         
                         data, _ = Data.objects.get_or_create(series=series, date=row['date'], defaults=row)
                         data.value = row['value']
