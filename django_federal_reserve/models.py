@@ -74,10 +74,14 @@ class FederalReserveDataSource(DataSource):
         return local_fn
     
     @classmethod
-    def refresh(cls, bulk=False, fn=None, no_download=False, **kwargs):
+    def refresh(cls, bulk=False, skip_to=None, fn=None, no_download=False, **kwargs):
         """
         Reads the associated API and saves data to tables.
         """
+        
+        if skip_to:
+            skip_to = int(skip_to)
+        
         tmp_debug = settings.DEBUG
         settings.DEBUG = False
         django.db.transaction.enter_transaction_management()
@@ -107,9 +111,20 @@ class FederalReserveDataSource(DataSource):
                         break
                 total -= offset
                 i = 0
+                just_skipped = False
                 data = csv.DictReader(line_iter, delimiter=';')
                 for row in data:
                     i += 1
+                    if skip_to and i < skip_to:
+                        if not just_skipped:
+                            print
+                        print '\rSkipping from %s to %s...' % (i, skip_to),
+                        sys.stdout.flush()
+                        just_skipped = True
+                        continue
+                    elif just_skipped:
+                        just_skipped = False
+                        print
                     row = dict(
                         (
                             (k or '').strip().lower().replace(' ', '_'),
