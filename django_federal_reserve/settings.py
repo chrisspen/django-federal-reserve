@@ -24,3 +24,13 @@ BULK_INDEX_FN = settings.DFR_BULK_INDEX_FN = getattr(
     settings,
     'DFR_BULK_INDEX_FN',
     'FRED2_csv_2/README_SERIES_ID_SORT.txt')
+
+# The number of days a series must be stale with before its checked
+# for an update.
+# A bigger value allows fewer updates but risks having more stale data.
+# A smaller value keeps fresher data but may waste more time unnecessarily
+# checking for updates.
+LAST_UPDATE_DAYS = settings.DFR_LAST_UPDATE_DAYS = getattr(
+    settings,
+    'DFR_LAST_UPDATE_DAYS',
+    60)

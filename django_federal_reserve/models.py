@@ -11,6 +11,8 @@ from datetime import date, timedelta
 
 import django
 from django.db import models
+from django.db.models import Max, Min
+from django.utils.translation import ugettext_lazy as _
 from django.conf import settings
 
 from django_data_mirror.models import DataSource, ForeignKey
@@ -122,11 +124,15 @@ class FederalReserveDataSource(DataSource):
                     row['id'] = row['file'].split('\\')[-1].split('.')[0]
                     section_fn = row['file'] # FRED2_csv_2/data/4/4BIGEURORECP.csv
                     del row['file']
-                    row['last_updated'] = dateutil.parser.parse(row['last_updated']) if row['last_updated'] else None
+                    if row['last_updated']:
+                        row['last_updated'] = dateutil.parser.parse(row['last_updated'])
+                        row['last_updated'] = date(row['last_updated'].year, row['last_updated'].month, row['last_updated'].day)
                     #print row
                     series, _ = Series.objects.get_or_create(id=row['id'], defaults=row)
+                    series.last_updated = row['last_updated']
+                    prior_series_dates = series.data.all().values_list('date', flat=True)
                     
-                    if series.max_date and series.last_updated > (series.max_date - timedelta(days=30)):
+                    if series.max_date and series.last_updated > (series.max_date - timedelta(days=s.LAST_UPDATE_DAYS)):
                         continue
                     elif not section_fn.endswith('.csv'):
                         continue
@@ -134,9 +140,12 @@ class FederalReserveDataSource(DataSource):
                     section_fn = 'FRED2_csv_2/data/' + section_fn.replace('\\', '/')
                     #print 'section_fn:',section_fn
                     lines = source.open(section_fn, 'r').readlines()
-                    last_data = None
+                    #last_data = None
+                    last_data_date = None
+                    last_data_value = None
                     total2 = len(source.open(section_fn, 'r').readlines())
                     i2 = 0
+                    series_data_pending = []
                     for row in csv.DictReader(source.open(section_fn, 'r')):
                         i2 += 1
                         print '\r\tLine %.02f%% (%i of %i)' % (i2/float(total2)*100, i2, total2),
@@ -154,33 +163,29 @@ class FederalReserveDataSource(DataSource):
                         del row['VALUE']
                         #print row
                         
-                        if s.EXPAND_DATA_TO_DAYS and last_data:
-#                            while row['date'] > last_data.date:
-#                                last_data.date += timedelta(days=1)
-#                                Data.objects.get_or_create(
-#                                    series=series,
-#                                    date=last_data.date,
-#                                    defaults=dict(value=last_data.value),
-#                                )
-                            prior_series_dates = set(Data.objects.filter(
-                                series=series,
-                                date__gt=row['date'],
-                                date__lt=last_data.date,
-                            ).values_list('date', flat=True))
-                            intermediate_days = (row['date'] - last_data.date).days
+                        if s.EXPAND_DATA_TO_DAYS and last_data_date:
+                            intermediate_days = (row['date'] - last_data_date).days
                             #print 'Expanding data to %i intermediate days...' % (intermediate_days,)
-                            sys.stdout.flush()
-                            Data.objects.bulk_create([
-                                Data(series=series, date=last_data.date+timedelta(days=_days), value=last_data.value)
+                            #sys.stdout.flush()
+                            #Data.objects.bulk_create([
+                            series_data_pending.extend([
+                                Data(series=series, date=last_data_date+timedelta(days=_days), value=last_data_value)
                                 for _days in xrange(1, intermediate_days)
-                                if (last_data.date+timedelta(days=_days)) not in prior_series_dates
+                                if (last_data_date+timedelta(days=_days)) not in prior_series_dates
                             ])
                         
-                        data, _ = Data.objects.get_or_create(series=series, date=row['date'], defaults=row)
-                        data.value = row['value']
-                        data.save()
-                        last_data = data
+                        #data, _ = Data.objects.get_or_create(series=series, date=row['date'], defaults=row)
+                        if row['date'] not in prior_series_dates:
+                            data = Data(series=series, date=row['date'], value=row['value'])
+                            series_data_pending.append(data)
+                        #data.save()
+                        last_data_date = row['date']
+                        last_data_value = row['value']
+                    if series_data_pending:
+                        Data.objects.bulk_create(series_data_pending)
+                    print '\r\tLine %.02f%% (%i of %i)' % (100, i2, total2),
                     print
+                    series.save()
                         
                     # Cleanup.
                     django.db.transaction.commit()
@@ -241,6 +246,8 @@ class Series(models.Model):
         db_index=True,
         blank=True,
         null=True,
+        help_text=_('''NSA=not seasonally adjusted, SA=seasonally adjusted,
+SAAR=seasonally adjusted annual rates, SSA=smoothed seasonally adjusted''')
     )
     
     last_updated = models.DateField(
@@ -281,6 +288,12 @@ class Series(models.Model):
         
         if 'discontinued' in (self.title or '').lower():
             self.active = False
+        
+        if self.id:
+            if not self.min_date:
+                self.min_date = self.data.all().aggregate(Min('date'))['date__min']
+            if not self.max_date:
+                self.max_date = self.data.all().aggregate(Max('date'))['date__max']
         
         super(Series, self).save(*args, **kwargs)
 

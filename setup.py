@@ -10,7 +10,7 @@ setup(
     author_email = "chrisspen@gmail.com",
     description = "",
     license = "LGPL",
-    url = "https://github.com/chrisspen/django_worldbank",
+    url = "https://github.com/chrisspen/django_federal_reserve",
     classifiers = [
         'Environment :: Web Environment',
         'Intended Audience :: Developers',
