@@ -146,6 +146,7 @@ class FederalReserveDataSource(DataSource):
                         print
                         
                     DataSourceFile.objects.filter(id=dsfile.id).update(
+                        downloaded=True,
                         complete=False,
                         total_lines=total,
                         total_lines_complete=i,
@@ -245,6 +246,14 @@ class FederalReserveDataSource(DataSource):
                     Series.objects.update()
                     Data.objects.update()
                     gc.collect()
+                    
+                DataSourceFile.objects.filter(id=dsfile.id).update(
+                    complete=True,
+                    downloaded=True,
+                    total_lines=total,
+                    total_lines_complete=total,
+                    percent=100,
+                )
                     
             else:
                 #TODO:use API to download data for each series_id individually
