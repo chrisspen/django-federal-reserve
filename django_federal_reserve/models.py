@@ -15,7 +15,7 @@ from django.db.models import Max, Min
 from django.utils.translation import ugettext_lazy as _
 from django.conf import settings
 
-from django_data_mirror.models import DataSource, ForeignKey
+from django_data_mirror.models import DataSource, DataSourceControl, DataSourceFile, register
 
 import settings as s
 
@@ -31,13 +31,17 @@ class FederalReserveDataSource(DataSource):
         ./manage.py data_mirror_analyze FederalReserveDataSource
     """
     
-    @classmethod
     def download_bulk_data(self, fn=None, no_download=False):
         """
         Downloads bulk CSV data for initial database population.
         """
         tmp_local_fn = '/tmp/_%s' % (s.BULK_URL.split('/')[-1],)
         local_fn = fn or ('/tmp/%s' % (s.BULK_URL.split('/')[-1],))
+        source = DataSourceControl.objects.get(slug=type(self).__name__)
+        dsfile, _ = DataSourceFile.objects.get_or_create(source=source, name=local_fn)
+        django.db.transaction.commit()
+        if dsfile.complete:
+            return local_fn
         if os.path.isfile(local_fn):
             print 'File %s already downloaded.' % (local_fn,)
         elif no_download:
@@ -71,10 +75,10 @@ class FederalReserveDataSource(DataSource):
 #                    if not chunk: break
 #                    fp.write(chunk)
             print 'Downloaded %s successfully.' % (local_fn,)
+            DataSourceFile.objects.filter(id=dsfile.id).update(downloaded=True)
         return local_fn
     
-    @classmethod
-    def refresh(cls, bulk=False, skip_to=None, fn=None, no_download=False, **kwargs):
+    def refresh(self, bulk=False, skip_to=None, fn=None, no_download=False, **kwargs):
         """
         Reads the associated API and saves data to tables.
         """
@@ -88,14 +92,29 @@ class FederalReserveDataSource(DataSource):
         django.db.transaction.managed(True)
         
         try:
-                
             if bulk:
-                local_fn = cls.download_bulk_data(fn=fn, no_download=no_download)
+                local_fn = self.download_bulk_data(fn=fn, no_download=no_download)
+                dsfile, _ = DataSourceFile.objects.get_or_create(name=local_fn)
+                if dsfile.complete:
+                    return
+                
                 # Process CSV.
                 print 'Reading file...'
                 sys.stdout.flush()
                 source = zipfile.ZipFile(local_fn, 'r')
-                total = len(source.open(s.BULK_INDEX_FN, 'r').readlines())
+                if dsfile.total_lines_complete:
+                    total = dsfile.total_lines
+                    if not skip_to:
+                        skip_to = dsfile.total_lines_complete
+                else:
+                    total = len(source.open(s.BULK_INDEX_FN, 'r').readlines())
+                    DataSourceFile.objects.filter(id=dsfile.id).update(
+                        complete=False,
+                        total_lines=total,
+                        total_lines_complete=0,
+                        percent=0,
+                    )
+                django.db.transaction.commit()
                 line_iter = iter(source.open(s.BULK_INDEX_FN, 'r'))
                 offset = 0
                 while 1:
@@ -125,6 +144,16 @@ class FederalReserveDataSource(DataSource):
                     elif just_skipped:
                         just_skipped = False
                         print
+                        
+                    DataSourceFile.objects.filter(id=dsfile.id).update(
+                        complete=False,
+                        total_lines=total,
+                        total_lines_complete=i,
+                        percent=i/float(total)*100,
+                    )
+                    if not i % 10:
+                        django.db.transaction.commit()
+                        
                     row = dict(
                         (
                             (k or '').strip().lower().replace(' ', '_'),
@@ -134,7 +163,7 @@ class FederalReserveDataSource(DataSource):
                     )
                     if not row.get('file'):
                         continue
-                    print 'Loading %s %.02f%% (%i of %i)...' % (row.get('file'), i/float(total)*100, i, total)
+                    print '\rLoading %s %.02f%% (%i of %i)...' % (row.get('file'), i/float(total)*100, i, total),
                     sys.stdout.flush()
                     row['id'] = row['file'].split('\\')[-1].split('.')[0]
                     section_fn = row['file'] # FRED2_csv_2/data/4/4BIGEURORECP.csv
@@ -145,7 +174,9 @@ class FederalReserveDataSource(DataSource):
                     #print row
                     series, _ = Series.objects.get_or_create(id=row['id'], defaults=row)
                     series.last_updated = row['last_updated']
-                    prior_series_dates = series.data.all().values_list('date', flat=True)
+                    series_min_date = series.min_date
+                    series_max_date = series.max_date
+                    prior_series_dates = set(series.data.all().values_list('date', flat=True))
                     
                     if series.max_date and series.last_updated > (series.max_date - timedelta(days=s.LAST_UPDATE_DAYS)):
                         continue
@@ -160,13 +191,20 @@ class FederalReserveDataSource(DataSource):
                     last_data_value = None
                     total2 = len(source.open(section_fn, 'r').readlines())
                     i2 = 0
+                    if s.EXPAND_DATA_TO_DAYS:
+                        print
                     series_data_pending = []
                     for row in csv.DictReader(source.open(section_fn, 'r')):
                         i2 += 1
-                        print '\r\tLine %.02f%% (%i of %i)' % (i2/float(total2)*100, i2, total2),
+                        if s.EXPAND_DATA_TO_DAYS:
+                            print '\r\tLine %.02f%% (%i of %i)' % (i2/float(total2)*100, i2, total2),
                         sys.stdout.flush()
                         row['date'] = dateutil.parser.parse(row['DATE'])
                         row['date'] = date(row['date'].year, row['date'].month, row['date'].day)
+                        
+#                        series_min_date = min(series_min_date or row['date'], row['date'])
+#                        series_max_date = max(series_max_date or row['date'], row['date'])
+                        
                         del row['DATE']
                         try:
                             row['value'] = float(row['VALUE'])
@@ -198,8 +236,8 @@ class FederalReserveDataSource(DataSource):
                         last_data_value = row['value']
                     if series_data_pending:
                         Data.objects.bulk_create(series_data_pending)
-                    print '\r\tLine %.02f%% (%i of %i)' % (100, i2, total2),
-                    print
+#                    print '\r\tLine %.02f%% (%i of %i)' % (100, i2, total2),
+#                    print
                     series.save()
                         
                     # Cleanup.
@@ -221,9 +259,10 @@ class FederalReserveDataSource(DataSource):
             django.db.connection.close()
             print "Committed."
         
-    @classmethod
-    def get_feeds(cls, bulk=False):
+    def get_feeds(self, bulk=False):
         return []
+
+register(FederalReserveDataSource)
 
 class Series(models.Model):
     
@@ -271,7 +310,17 @@ SAAR=seasonally adjusted annual rates, SSA=smoothed seasonally adjusted''')
         db_index=True,
     )
     
-    active = models.BooleanField(default=True)
+    active = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text=_('''If checked, indicates this series is still being updated
+            by the Fed.'''))
+    
+    enabled = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name='load',
+        help_text=_('''If checked, data will be downloaded for this series.'''))
     
     min_date = models.DateField(
         blank=True,

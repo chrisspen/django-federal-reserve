@@ -8,7 +8,7 @@ from django.conf import settings
 EXPAND_DATA_TO_DAYS = settings.DFR_EXPAND_DATA_TO_DAYS = getattr(
     settings,
     'DFR_EXPAND_DATA_TO_DAYS',
-    True)
+    False)
 
 BULK_URL = settings.DFR_BULK_URL = getattr(
     settings,
