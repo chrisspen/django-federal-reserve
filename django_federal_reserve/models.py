@@ -281,7 +281,12 @@ class FederalReserveDataSource(DataSource):
                         observation_start=observation_start)
                     for data in series_data['observations']:
                         print series, data['date'], data['value']
-                        value = float(data['value'])
+                        try:
+                            value = float(data['value'])
+                        except ValueError:
+                            continue
+                        except TypeError:
+                            continue
                         data, created = Data.objects.get_or_create(
                             series=series,
                             date=data['date'],
