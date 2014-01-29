@@ -271,7 +271,7 @@ class FederalReserveDataSource(DataSource):
                 print '%i stale series found.' % (total,)
                 for series in q.iterator():
                     i += 1
-                    print '%i of %i' % (i, total)
+                    print '\rImporting %i of %i' % (i, total),
                     sys.stdout.flush()
                     observation_start = None
                     if series.max_date:
@@ -280,7 +280,7 @@ class FederalReserveDataSource(DataSource):
                         series.id,
                         observation_start=observation_start)
                     for data in series_data['observations']:
-                        print series, data['date'], data['value']
+                        #print series, data['date'], data['value']
                         try:
                             value = float(data['value'])
                         except ValueError:
@@ -296,7 +296,7 @@ class FederalReserveDataSource(DataSource):
                             data.value = value
                             data.save()
                     django.db.transaction.commit()
-                
+                print
         finally:
             #print "Committing..."
             settings.DEBUG = tmp_debug
