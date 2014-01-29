@@ -34,3 +34,8 @@ LAST_UPDATE_DAYS = settings.DFR_LAST_UPDATE_DAYS = getattr(
     settings,
     'DFR_LAST_UPDATE_DAYS',
     60)
+
+API_KEY = settings.DFR_API_KEY = getattr(
+    settings,
+    'DFR_API_KEY',
+    None)

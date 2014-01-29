@@ -22,6 +22,8 @@ class SeriesAdmin(admin.ModelAdmin):
         'min_date',
         'max_date',
         'active',
+        'enabled',
+        'fresh',
     )
     
     search_fields = (
@@ -31,6 +33,7 @@ class SeriesAdmin(admin.ModelAdmin):
     
     list_filter = (
         'active',
+        'enabled',
         'frequency',
         'seasonal_adjustment',
         'units',
@@ -40,6 +43,12 @@ class SeriesAdmin(admin.ModelAdmin):
         'min_date',
         'max_date',
         'data_link',
+        'fresh',
+    )
+    
+    actions = (
+        'enable_load',
+        'disable_load',
     )
     
     def queryset(self, *args, **kwargs):
@@ -53,6 +62,15 @@ class SeriesAdmin(admin.ModelAdmin):
         return view_related_link(obj, 'data')
     data_link.allow_tags = True
     data_link.short_description = 'data'
+    
+    def enable_load(self, request, queryset):
+        models.Series.objects.filter(id__in=queryset).update(enabled=True)
+    enable_load.short_description = 'Enable value loading of selected %(verbose_name_plural)s'
+    
+    def disable_load(self, request, queryset):
+        models.Series.objects.filter(id__in=queryset).update(enabled=False)
+    disable_load.short_description = 'Disable value loading of selected %(verbose_name_plural)s'
+    
     
 admin.site.register(models.Series, SeriesAdmin)
 

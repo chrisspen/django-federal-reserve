@@ -11,12 +11,16 @@ from datetime import date, timedelta
 
 import django
 from django.db import models
-from django.db.models import Max, Min
+from django.db.models import Max, Min, Q
 from django.utils.translation import ugettext_lazy as _
 from django.conf import settings
+from django.utils import timezone
+
+import fred
 
 from django_data_mirror.models import DataSource, DataSourceControl, DataSourceFile, register
 
+import constants as c
 import settings as s
 
 try:
@@ -258,22 +262,67 @@ class FederalReserveDataSource(DataSource):
             else:
                 #TODO:use API to download data for each series_id individually
                 #e.g. http://api.stlouisfed.org/fred/series/observations?series_id=DEXUSEU&api_key=<api_key>
-                todo
+                #TODO:check for revised values using output_type?
+                #http://api.stlouisfed.org/docs/fred/series_observations.html#output_type
+                q = Series.objects.get_stale()
+                fred.key(s.API_KEY)
+                i = 0
+                total = q.count()
+                print '%i stale series found.' % (total,)
+                for series in q.iterator():
+                    i += 1
+                    print '%i of %i' % (i, total)
+                    sys.stdout.flush()
+                    observation_start = None
+                    if series.max_date:
+                        observation_start = series.max_date - timedelta(days=7)
+                    series_data = fred.observations(
+                        series.id,
+                        observation_start=observation_start)
+                    for data in series_data['observations']:
+                        print series, data['date'], data['value']
+                        value = float(data['value'])
+                        data, created = Data.objects.get_or_create(
+                            series=series,
+                            date=data['date'],
+                            defaults=dict(value=value))
+                        if not created:
+                            data.value = value
+                            data.save()
+                    django.db.transaction.commit()
                 
         finally:
-            print "Committing..."
+            #print "Committing..."
             settings.DEBUG = tmp_debug
             django.db.transaction.commit()
             django.db.transaction.leave_transaction_management()
-            django.db.connection.close()
-            print "Committed."
+            #django.db.connection.close()
+            #print "Committed."
         
     def get_feeds(self, bulk=False):
         return []
 
 register(FederalReserveDataSource)
 
+class SeriesManager(models.Manager):
+    
+    def get_stale(self, enabled=True):
+        q = self.all()
+        q = q.filter(active=True)
+        if enabled is not None:
+            q = q.filter(enabled=enabled)
+        q = q.filter(
+            Q(max_date__isnull=True)|\
+            Q(frequency__startswith=c.ANNUALLY, max_date__lte=timezone.now()-timedelta(days=365))|\
+            Q(frequency__startswith=c.QUARTERLY, max_date__lte=timezone.now()-timedelta(days=90))|\
+            Q(frequency__startswith=c.MONTHLY, max_date__lte=timezone.now()-timedelta(days=30))|\
+            Q(frequency__startswith=c.DAILY, max_date__lte=timezone.now()-timedelta(days=1))
+        )
+        return q
+
 class Series(models.Model):
+    
+    objects = SeriesManager()
     
     id = models.CharField(
         max_length=150,
@@ -356,6 +405,10 @@ SAAR=seasonally adjusted annual rates, SSA=smoothed seasonally adjusted''')
     
     def __repr__(self):
         return unicode(self)
+    
+    def fresh(self):
+        return not type(self).objects.get_stale(enabled=None).filter(id=self.id).exists()
+    fresh.boolean = True
     
     def save(self, *args, **kwargs):
         

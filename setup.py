@@ -19,5 +19,5 @@ setup(
         'Programming Language :: Python',
         'Framework :: Django',
     ],
-    install_requires = ['Django>=1.4', 'fred'],
+    install_requires = ['Django>=1.4', 'fred>=3.0'],
 )
