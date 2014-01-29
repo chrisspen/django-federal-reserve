@@ -315,17 +315,26 @@ class SeriesManager(models.Manager):
     def get_fresh(self, enabled=None, q=None):
         if q is None:
             q = self
-        return q.filter(
-            min_date__isnull=False
-        ).exclude(
-            id__in=self.get_stale(enabled=enabled).values_list('id', flat=True)
+        offset = 1
+        q = q.filter(active=True)
+        if enabled is not None:
+            q = q.filter(enabled=enabled)
+        q = q.exclude(
+            Q(max_date__isnull=True)|\
+            Q(frequency__startswith=c.SEMIANNUALLY, max_date__lte=timezone.now()-timedelta(days=365*2+offset))|\
+            Q(frequency__startswith=c.ANNUALLY, max_date__lte=timezone.now()-timedelta(days=365+offset))|\
+            Q(frequency__startswith=c.QUARTERLY, max_date__lte=timezone.now()-timedelta(days=90+offset))|\
+            Q(frequency__startswith=c.MONTHLY, max_date__lte=timezone.now()-timedelta(days=30+offset))|\
+            Q(frequency__startswith=c.BIWEEKLY, max_date__lte=timezone.now()-timedelta(days=7*2+offset))|\
+            Q(frequency__startswith=c.WEEKLY, max_date__lte=timezone.now()-timedelta(days=7+offset))|\
+            Q(frequency__startswith=c.DAILY, max_date__lte=timezone.now()-timedelta(days=1+offset))
         )
+        return q
     
     def get_stale(self, enabled=True, q=None):
         if q is None:
             q = self
         offset = 1
-        q = q.all()
         q = q.filter(active=True)
         if enabled is not None:
             q = q.filter(enabled=enabled)

@@ -35,7 +35,7 @@ class FreshListFilter(SimpleListFilter):
         """
         return [
             (None, _('All')),
-            #(True, _('Fresh')),
+            (True, _('Fresh')),
             (False, _('Stale')),
         ]
 
