@@ -55,9 +55,9 @@ class FreshListFilter(SimpleListFilter):
         """
         if self.parameter_val is not None:
             if self.parameter_val:
-                queryset = queryset.filter(id__in=models.Series.objects.get_fresh())
+                queryset = queryset.filter(id__in=models.Series.objects.get_fresh().values_list('id', flat=True))
             else:
-                queryset = queryset.filter(id__in=models.Series.objects.get_stale())
+                queryset = queryset.filter(id__in=models.Series.objects.get_stale().values_list('id', flat=True))
         return queryset
 
 class SeriesAdmin(admin.ModelAdmin):
