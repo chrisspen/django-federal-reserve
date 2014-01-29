@@ -287,9 +287,10 @@ class FederalReserveDataSource(DataSource):
                             continue
                         except TypeError:
                             continue
+                        dt = date(*map(int, data['date'].split('-')))
                         data, created = Data.objects.get_or_create(
                             series=series,
-                            date=data['date'],
+                            date=dt,
                             defaults=dict(value=value))
                         if not created:
                             data.value = value
