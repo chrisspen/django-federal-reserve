@@ -320,9 +320,12 @@ class SeriesManager(models.Manager):
             q = q.filter(enabled=enabled)
         q = q.filter(
             Q(max_date__isnull=True)|\
+            Q(frequency__startswith=c.SEMIANNUALLY, max_date__lte=timezone.now()-timedelta(days=365*2+offset))|\
             Q(frequency__startswith=c.ANNUALLY, max_date__lte=timezone.now()-timedelta(days=365+offset))|\
             Q(frequency__startswith=c.QUARTERLY, max_date__lte=timezone.now()-timedelta(days=90+offset))|\
             Q(frequency__startswith=c.MONTHLY, max_date__lte=timezone.now()-timedelta(days=30+offset))|\
+            Q(frequency__startswith=c.BIWEEKLY, max_date__lte=timezone.now()-timedelta(days=7*2+offset))|\
+            Q(frequency__startswith=c.WEEKLY, max_date__lte=timezone.now()-timedelta(days=7+offset))|\
             Q(frequency__startswith=c.DAILY, max_date__lte=timezone.now()-timedelta(days=1+offset))
         )
         return q
