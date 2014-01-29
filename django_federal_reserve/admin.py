@@ -35,7 +35,7 @@ class FreshListFilter(SimpleListFilter):
         """
         return [
             (None, _('All')),
-            (True, _('Fresh')),
+            #(True, _('Fresh')),
             (False, _('Stale')),
         ]
 
@@ -55,9 +55,11 @@ class FreshListFilter(SimpleListFilter):
         """
         if self.parameter_val is not None:
             if self.parameter_val:
-                queryset = queryset.filter(id__in=models.Series.objects.get_fresh().values_list('id', flat=True))
+                #TODO:fix, bad unusable performance?
+                queryset = models.Series.objects.get_fresh(q=queryset)
             else:
-                queryset = queryset.filter(id__in=models.Series.objects.get_stale().values_list('id', flat=True))
+                #queryset = queryset.filter(id__in=models.Series.objects.get_stale().values_list('id', flat=True))
+                queryset = models.Series.objects.get_stale(q=queryset)
         return queryset
 
 class SeriesAdmin(admin.ModelAdmin):
@@ -121,7 +123,6 @@ class SeriesAdmin(admin.ModelAdmin):
     def disable_load(self, request, queryset):
         models.Series.objects.filter(id__in=queryset).update(enabled=False)
     disable_load.short_description = 'Disable value loading of selected %(verbose_name_plural)s'
-    
     
 admin.site.register(models.Series, SeriesAdmin)
 

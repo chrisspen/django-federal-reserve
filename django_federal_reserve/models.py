@@ -312,16 +312,20 @@ register(FederalReserveDataSource)
 
 class SeriesManager(models.Manager):
     
-    def get_fresh(self, enabled=None):
-        return self.filter(
+    def get_fresh(self, enabled=None, q=None):
+        if q is None:
+            q = self
+        return q.filter(
             min_date__isnull=False
         ).exclude(
             id__in=self.get_stale(enabled=enabled).values_list('id', flat=True)
         )
     
-    def get_stale(self, enabled=True):
+    def get_stale(self, enabled=True, q=None):
+        if q is None:
+            q = self
         offset = 1
-        q = self.all()
+        q = q.all()
         q = q.filter(active=True)
         if enabled is not None:
             q = q.filter(enabled=enabled)
