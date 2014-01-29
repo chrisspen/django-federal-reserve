@@ -313,16 +313,17 @@ register(FederalReserveDataSource)
 class SeriesManager(models.Manager):
     
     def get_stale(self, enabled=True):
+        offset = 1
         q = self.all()
         q = q.filter(active=True)
         if enabled is not None:
             q = q.filter(enabled=enabled)
         q = q.filter(
             Q(max_date__isnull=True)|\
-            Q(frequency__startswith=c.ANNUALLY, max_date__lte=timezone.now()-timedelta(days=365))|\
-            Q(frequency__startswith=c.QUARTERLY, max_date__lte=timezone.now()-timedelta(days=90))|\
-            Q(frequency__startswith=c.MONTHLY, max_date__lte=timezone.now()-timedelta(days=30))|\
-            Q(frequency__startswith=c.DAILY, max_date__lte=timezone.now()-timedelta(days=1))
+            Q(frequency__startswith=c.ANNUALLY, max_date__lte=timezone.now()-timedelta(days=365+offset))|\
+            Q(frequency__startswith=c.QUARTERLY, max_date__lte=timezone.now()-timedelta(days=90+offset))|\
+            Q(frequency__startswith=c.MONTHLY, max_date__lte=timezone.now()-timedelta(days=30+offset))|\
+            Q(frequency__startswith=c.DAILY, max_date__lte=timezone.now()-timedelta(days=1+offset))
         )
         return q
 
