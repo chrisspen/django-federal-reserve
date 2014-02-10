@@ -90,6 +90,7 @@ class SeriesAdmin(admin.ModelAdmin):
         'frequency',
         'seasonal_adjustment',
         'units',
+        'date_is_start',
     )
     
     readonly_fields = (
@@ -97,6 +98,7 @@ class SeriesAdmin(admin.ModelAdmin):
         'max_date',
         'data_link',
         'fresh',
+        'date_is_start',
     )
     
     actions = (
@@ -131,6 +133,8 @@ class DataAdmin(admin.ModelAdmin):
     list_display = (
         'series',
         'date',
+        'start_date_inclusive',
+        'end_date_inclusive',
         'value',
     )
     search_fields = (

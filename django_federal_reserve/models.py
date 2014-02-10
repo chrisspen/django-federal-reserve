@@ -16,6 +16,11 @@ from django.utils.translation import ugettext_lazy as _
 from django.conf import settings
 from django.utils import timezone
 
+try:
+    from monthdelta import MonthDelta as monthdelta
+except ImportError:
+    from monthdelta import monthdelta
+
 import fred
 
 from django_data_mirror.models import DataSource, DataSourceControl, DataSourceFile, register
@@ -82,7 +87,7 @@ class FederalReserveDataSource(DataSource):
             DataSourceFile.objects.filter(id=dsfile.id).update(downloaded=True)
         return local_fn
     
-    def refresh(self, bulk=False, skip_to=None, fn=None, no_download=False, **kwargs):
+    def refresh(self, bulk=False, skip_to=None, fn=None, no_download=False, ids=None, force=False, **kwargs):
         """
         Reads the associated API and saves data to tables.
         """
@@ -264,11 +269,19 @@ class FederalReserveDataSource(DataSource):
                 #e.g. http://api.stlouisfed.org/fred/series/observations?series_id=DEXUSEU&api_key=<api_key>
                 #TODO:check for revised values using output_type?
                 #http://api.stlouisfed.org/docs/fred/series_observations.html#output_type
-                q = Series.objects.get_stale()
+                if force:
+                    if ids:
+                        q = Series.objects.all()
+                    else:
+                        q = Series.objects.get_loadable()
+                else:
+                    q = Series.objects.get_stale()
+                if ids:
+                    q = q.filter(id__in=ids)
                 fred.key(s.API_KEY)
                 i = 0
                 total = q.count()
-                print '%i stale series found.' % (total,)
+                print '%i series found.' % (total,)
                 for series in q.iterator():
                     i += 1
                     print '\rImporting %i of %i' % (i, total),
@@ -276,6 +289,14 @@ class FederalReserveDataSource(DataSource):
                     observation_start = None
                     if series.max_date:
                         observation_start = series.max_date - timedelta(days=7)
+                    
+                    series_info = fred.series(series.id)['seriess'][0]
+                    #print 'series_info:',series_info
+                    last_updated = series_info['last_updated'].strip()
+                    series.last_updated = dateutil.parser.parse(last_updated) if last_updated else None
+                    series.popularity = series_info['popularity']
+                    series.save()
+                    
                     series_data = fred.observations(
                         series.id,
                         observation_start=observation_start)
@@ -295,6 +316,32 @@ class FederalReserveDataSource(DataSource):
                         if not created:
                             data.value = value
                             data.save()
+                            
+                    series = Series.objects.get(id=series.id)
+                    if series.last_updated:
+                        most_recent_past_date = series.data.filter(date__lte=date.today()).aggregate(Max('date'))['date__max']
+                        threshold = series.last_updated - timedelta(days=series.days)
+#                        print
+#                        print 'most_recent_past_date:',most_recent_past_date
+#                        print 'last_updated:',series.last_updated
+#                        print 'threshold:',threshold
+                        if most_recent_past_date:
+                            if series.frequency == c.QUARTERLY and most_recent_past_date.day == 1:
+                                #TODO: Is this a safe assumption? Might not matter for series without future data.
+                                series.date_is_start = True
+                            elif most_recent_past_date >= threshold:
+                                series.date_is_start = False
+                            else:
+                                series.date_is_start = True
+                            series.save()
+                    
+                    series.data.all().update(start_date_inclusive=None, end_date_inclusive=None)#TODO:only do conditionally?
+                    missing_dates = series.data.filter(Q(start_date_inclusive__isnull=True)|Q(end_date_inclusive__isnull=True))
+                    print 'Updating %i date ranges.' % (missing_dates.count(),)
+                    for _ in missing_dates.iterator():
+                        _.set_date_range()
+                        _.save()
+                    
                     django.db.transaction.commit()
                 print
         finally:
@@ -330,6 +377,11 @@ class SeriesManager(models.Manager):
             Q(frequency__startswith=c.DAILY, max_date__lte=timezone.now()-timedelta(days=1+offset))
         )
         return q
+    
+    def get_loadable(self, q=None):
+        if q is None:
+            q = self
+        return q.filter(active=True, enabled=True)
     
     def get_stale(self, enabled=True, q=None):
         if q is None:
@@ -424,6 +476,21 @@ SAAR=seasonally adjusted annual rates, SSA=smoothed seasonally adjusted''')
         editable=False,
     )
     
+    popularity = models.IntegerField(
+        blank=True,
+        null=True,
+        db_index=True,
+    )
+    
+    date_is_start = models.NullBooleanField(
+        editable=False,
+        help_text=_('''If true, indicates that the date in each data point
+            represents the start of the date range over which that point\'s
+            data is valid.<br/>
+            If false, indicates the date represents the end of this range.<br/>
+            The opposite date in the range should be taken from the adjacent
+            data point.'''))
+    
     class Meta:
         verbose_name_plural = 'series'
         app_label = APP_LABEL
@@ -439,6 +506,18 @@ SAAR=seasonally adjusted annual rates, SSA=smoothed seasonally adjusted''')
     def fresh(self):
         return not type(self).objects.get_stale(enabled=None).filter(id=self.id).exists()
     fresh.boolean = True
+    
+    @property
+    def days(self):
+        return {
+            c.SEMIANNUALLY:730,
+            c.ANNUALLY:365,
+            c.QUARTERLY:90,
+            c.MONTHLY:30,
+            c.BIWEEKLY:14,
+            c.WEEKLY:7,
+            c.DAILY:1,
+        }[self.frequency]
     
     def save(self, *args, **kwargs):
         
@@ -463,6 +542,18 @@ class Data(models.Model):
         db_index=True,
     )
     
+    start_date_inclusive = models.DateField(
+        blank=True,
+        null=True,
+        db_index=True,
+    )
+    
+    end_date_inclusive = models.DateField(
+        blank=True,
+        null=True,
+        db_index=True,
+    )
+    
     value = models.FloatField(
         blank=False,
         null=False,
@@ -476,10 +567,26 @@ class Data(models.Model):
             ('series', 'date'),
         )
         ordering = ('series', '-date')
-        
+    
+    def set_date_range(self):
+        if self.series.date_is_start:
+            self.start_date_inclusive = self.date
+            q = Data.objects.filter(series=self.series, date__gt=self.date).order_by('date')
+            if q.exists():
+                self.end_date_inclusive = q[0].date - timedelta(days=1)
+            elif self.series.frequency == c.MONTHLY and self.start_date_inclusive.day == 1:
+                self.end_date_inclusive = self.start_date_inclusive + monthdelta(1) - timedelta(days=1)
+            #TODO:handle open end date for other frequencies?
+        else:
+            self.end_date_inclusive = self.date
+            q = Data.objects.filter(series=self.series, date__lt=self.date).order_by('-date')
+            if q.exists():
+                self.start_date_inclusive = q[0].date + timedelta(days=1)
+    
     def save(self, *args, **kwargs):
         super(Data, self).save(*args, **kwargs)
-        self.series.min_date = min(self.series.min_date or self.date, self.date)
-        self.series.max_date = max(self.series.max_date or self.date, self.date)
-        self.series.save()
+        Series.objects.filter(id=self.series.id).update(
+            min_date = min(self.series.min_date or self.date, self.date),
+            max_date = max(self.series.max_date or self.date, self.date),
+        )
         
