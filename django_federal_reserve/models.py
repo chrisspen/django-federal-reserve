@@ -335,7 +335,9 @@ class FederalReserveDataSource(DataSource):
                                 series.date_is_start = True
                             series.save()
                     
-                    series.data.all().update(start_date_inclusive=None, end_date_inclusive=None)#TODO:only do conditionally?
+                    if force:
+                        series.data.all().update(start_date_inclusive=None, end_date_inclusive=None)
+                        
                     missing_dates = series.data.filter(Q(start_date_inclusive__isnull=True)|Q(end_date_inclusive__isnull=True))
                     print 'Updating %i date ranges.' % (missing_dates.count(),)
                     for _ in missing_dates.iterator():
