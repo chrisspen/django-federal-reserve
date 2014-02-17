@@ -76,6 +76,7 @@ class SeriesAdmin(admin.ModelAdmin):
         'active',
         'enabled',
         'fresh',
+        'date_is_start',
     )
     
     search_fields = (
@@ -87,13 +88,19 @@ class SeriesAdmin(admin.ModelAdmin):
         FreshListFilter,
         'active',
         'enabled',
+        'date_is_start',
         'frequency',
         'seasonal_adjustment',
         'units',
-        'date_is_start',
     )
     
     readonly_fields = (
+        'id',
+        'title',
+        'frequency',
+        'seasonal_adjustment',
+        'last_updated',
+        'popularity',
         'min_date',
         'max_date',
         'data_link',
@@ -105,6 +112,9 @@ class SeriesAdmin(admin.ModelAdmin):
         'enable_load',
         'disable_load',
     )
+    
+    def has_add_permission(self, request):
+        return False
     
     def queryset(self, *args, **kwargs):
         qs = super(SeriesAdmin, self).queryset(*args, **kwargs)
@@ -144,11 +154,19 @@ class DataAdmin(admin.ModelAdmin):
     )
     
     readonly_fields = (
+        'series',
+        'date',
+        'start_date_inclusive',
+        'end_date_inclusive',
+        'value',
     )
     
     raw_id_fields = (
         'series',
     )
+    
+    def has_add_permission(self, request):
+        return False
     
     def queryset(self, *args, **kwargs):
         qs = super(DataAdmin, self).queryset(*args, **kwargs)

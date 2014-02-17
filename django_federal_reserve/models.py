@@ -276,6 +276,7 @@ class FederalReserveDataSource(DataSource):
                         q = Series.objects.get_loadable()
                 else:
                     q = Series.objects.get_stale()
+                
                 if ids:
                     q = q.filter(id__in=ids)
                 fred.key(s.API_KEY)
@@ -414,6 +415,7 @@ class Series(models.Model):
         null=False,
         primary_key=True,
         unique=True,
+        editable=False,
         db_index=True,
     )
     
@@ -421,6 +423,7 @@ class Series(models.Model):
         max_length=500,
         blank=True,
         null=True,
+        editable=False,
     )
     
     units = models.CharField(
@@ -428,28 +431,37 @@ class Series(models.Model):
         db_index=True,
         blank=True,
         null=True,
+        editable=False,
     )
     
     frequency = models.CharField(
         max_length=100,
+        choices=c.FREQUENCY_CHOICES,
         db_index=True,
         blank=True,
         null=True,
+        editable=False,
+        help_text=_('How often the series is updated.'),
     )
     
     seasonal_adjustment = models.CharField(
         max_length=100,
+        choices=c.ADJUSTED_CHOICES,
         db_index=True,
+        editable=False,
         blank=True,
         null=True,
-        help_text=_('''NSA=not seasonally adjusted, SA=seasonally adjusted,
-SAAR=seasonally adjusted annual rates, SSA=smoothed seasonally adjusted''')
+        help_text=_('How the data is modified based on the time of year.')
     )
     
     last_updated = models.DateField(
         blank=True,
         null=True,
         db_index=True,
+        editable=False,
+        help_text=_('''The date when this data was last updated or revised by
+            the source. Note, this date does not necessarily imply when the
+            data was loaded.'''),
     )
     
     active = models.BooleanField(
@@ -482,6 +494,7 @@ SAAR=seasonally adjusted annual rates, SSA=smoothed seasonally adjusted''')
         blank=True,
         null=True,
         db_index=True,
+        editable=False,
     )
     
     date_is_start = models.NullBooleanField(
@@ -536,29 +549,36 @@ SAAR=seasonally adjusted annual rates, SSA=smoothed seasonally adjusted''')
 
 class Data(models.Model):
     
-    series = models.ForeignKey('Series', related_name='data')
+    series = models.ForeignKey(
+        'Series',
+        editable=False,
+        related_name='data')
     
     date = models.DateField(
         blank=False,
         null=False,
         db_index=True,
+        editable=False,
     )
     
     start_date_inclusive = models.DateField(
         blank=True,
         null=True,
         db_index=True,
+        editable=False,
     )
     
     end_date_inclusive = models.DateField(
         blank=True,
         null=True,
         db_index=True,
+        editable=False,
     )
     
     value = models.FloatField(
         blank=False,
         null=False,
+        editable=False,
     )
     
     class Meta:
