@@ -73,6 +73,7 @@ class SeriesAdmin(admin.ModelAdmin):
         'last_updated',
         'min_date',
         'max_date',
+        'popularity',
         'active',
         'enabled',
         'fresh',
