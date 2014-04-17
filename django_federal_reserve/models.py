@@ -588,6 +588,11 @@ class Data(models.Model):
         unique_together = (
             ('series', 'date'),
         )
+        index_together = (
+            ('series', 'date'),
+            ('series', 'end_date_inclusive'),
+            ('series', 'start_date_inclusive', 'end_date_inclusive'),
+        )
         ordering = ('series', '-date')
     
     def set_date_range(self):
