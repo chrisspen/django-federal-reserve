@@ -11,10 +11,11 @@ setup(
     description = "Django model for storing Federal Reserve time series.",
     license = "LGPL",
     url = "https://github.com/chrisspen/django-federal-reserve",
+    #https://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers = [
         'Environment :: Web Environment',
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: LGPL License',
+        'License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Framework :: Django',
