@@ -8,9 +8,9 @@ setup(
     packages = find_packages(),
     author = "Chris Spencer",
     author_email = "chrisspen@gmail.com",
-    description = "",
+    description = "Django model for storing Federal Reserve time series.",
     license = "LGPL",
-    url = "https://github.com/chrisspen/django_federal_reserve",
+    url = "https://github.com/chrisspen/django-federal-reserve",
     classifiers = [
         'Environment :: Web Environment',
         'Intended Audience :: Developers',
