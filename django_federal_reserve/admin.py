@@ -97,6 +97,7 @@ class SeriesAdmin(admin.ModelAdmin):
     
     readonly_fields = (
         'id',
+        'fred_link',
         'title',
         'frequency',
         'seasonal_adjustment',
@@ -106,12 +107,43 @@ class SeriesAdmin(admin.ModelAdmin):
         'max_date',
         'data_link',
         'fresh',
+        'units',
         'date_is_start',
     )
     
     actions = (
         'enable_load',
         'disable_load',
+    )
+    
+    fieldsets = (
+        (None, {
+            'fields': (
+                'id',
+                'title',
+                'data_link',
+                'fred_link',
+            )
+        }),
+        ('Flags', {
+            'fields': (
+                'active',
+                'enabled',
+                'fresh',
+                'date_is_start',
+            )
+        }),
+        ('Details', {
+            'fields': (
+                'frequency',
+                'seasonal_adjustment',
+                'units',
+                'last_updated',
+                'popularity',
+                'min_date',
+                'max_date',
+            )
+        }),
     )
     
     def has_add_permission(self, request):
@@ -121,6 +153,14 @@ class SeriesAdmin(admin.ModelAdmin):
         qs = super(SeriesAdmin, self).queryset(*args, **kwargs)
         qs = qs._clone(klass=ApproxCountQuerySet)
         return qs
+    
+    def fred_link(self, obj=None):
+        if not obj:
+            return ''
+        url = 'http://research.stlouisfed.org/fred2/series/%s' % obj.id
+        return '<a href="%s" target="_blank" class="button">View</a>' % (url,)
+    fred_link.allow_tags = True
+    fred_link.short_description = 'FRED'
     
     def data_link(self, obj=None):
         if not obj:
