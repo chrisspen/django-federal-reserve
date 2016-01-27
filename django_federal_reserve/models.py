@@ -298,6 +298,9 @@ class FederalReserveDataSource(DataSource):
                     except KeyError:
                         print>>sys.stderr, 'Series %s is missing seriess: %s' % (series.id, fred.series(series.id),)
                         continue
+                    except Exception as e:
+                        print>>sys.stderr, 'Error on %s: %s' % (series.id, e,)
+                        continue
                         
                     #print 'series_info:',series_info
                     last_updated = series_info['last_updated'].strip()
