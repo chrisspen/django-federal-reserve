@@ -33,3 +33,10 @@ ADJUSTED_CHOICES = (
     (NOT_APPLICABLE, 'not applicable'),
     (NOT_SEASONALLY_ADJUSTED, 'not seasonally adjusted'),
 )
+
+ONE_DAY_DIFF_BOOL = 'one-day-diff-bool'
+COMPARISON_FILTER_CHOICES = (
+    (ONE_DAY_DIFF_BOOL, 'one-day-diff-bool'),
+)
+
+UNITS_BOOL = '+1 or 0'

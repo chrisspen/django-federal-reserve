@@ -8,6 +8,7 @@ import sys
 import urllib2
 import zipfile
 from datetime import date, timedelta
+from pprint import pprint
 
 import django
 from django.db import models
@@ -616,4 +617,206 @@ class Data(models.Model):
             min_date = min(self.series.min_date or self.date, self.date),
             max_date = max(self.series.max_date or self.date, self.date),
         )
+
+class ComparisonConfig(models.Model):
+    
+    series = models.ForeignKey(
+        'Series',
+        editable=True,
+        related_name='comparison_configs')
+        
+    enabled = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=_('''If checked, data will be downloaded for this series.'''))
+        
+    offset_days = models.IntegerField(
+        default=0,
+        blank=False,
+        null=False)
+        
+    other_filter = models.CharField(
+        max_length=50,
+        choices=c.COMPARISON_FILTER_CHOICES,
+        default=c.ONE_DAY_DIFF_BOOL,
+        blank=False,
+        null=False)
+        
+    fresh = models.BooleanField(
+        default=False, db_index=True)
+    
+    def __unicode__(self):
+        return '<ComparisonConfig: %s %s %s>' % (
+            unicode(self.series), self.offset_days, self.other_filter)
+    
+    def populate(self, force=False):
+#         if force:
+#             self.comparisons.all().delete()
+        existing = self.comparisons.all().values_list('series', flat=True)
+        other_series = Series.objects\
+            .exclude(id=self.series.id)\
+            .exclude(id__in=existing)\
+            .filter(active=True, enabled=True)
+        #other_series = other_series.filter(frequency=self.series.frequency)
+        for r in other_series.iterator():
+            print 'Populating %s...' % r
+            Comparison.objects.get_or_create(config=self, series=r)
+    
+    def save(self, *args, **kwargs):
+        
+        super(ComparisonConfig, self).save(*args, **kwargs)
+        
+        fresh_comparisons = self.comparisons.filter(fresh=True).count()
+        total_comparisons = self.comparisons.all().count()
+        
+        if fresh_comparisons == total_comparisons:
+            ComparisonConfig.objects.filter(id=self.id).update(fresh=True)
+        else:
+            ComparisonConfig.objects.filter(id=self.id).update(fresh=False)
+    
+class Skip(Exception):
+    pass
+    
+class Comparison(models.Model):
+    
+    config = models.ForeignKey(
+        'ComparisonConfig',
+        editable=False,
+        related_name='comparisons')
+        
+    series = models.ForeignKey(
+        'Series',
+        editable=False,
+        related_name='comparisons')
+        
+    fresh = models.BooleanField(
+        default=False, db_index=True)
+    
+    correlation = models.FloatField(
+        blank=True,
+        null=True,
+        verbose_name="Pearson's correlation coefficient")
+    
+    abs_correlation = models.FloatField(
+        blank=True,
+        null=True,
+        verbose_name="Abs(Pearson's correlation coefficient)")
+        
+    class Meta:
+        ordering = (
+            'config',
+            '-abs_correlation',
+        )
+    
+    def calculate(self):
+        from scipy.stats.stats import pearsonr
+        
+        self.correlation = None
+        
+        try:
+            
+            offset_days = self.config.offset_days
+            
+            parent_series = self.config.series
+            parent_data = dict([
+                ((r.start_date_inclusive, r.end_date_inclusive), r.value)
+                for r in parent_series.data.all()
+            ])
+            
+            child_series = self.series
+            child_series_data = child_series.data\
+                .exclude(start_date_inclusive__isnull=True)\
+                .exclude(end_date_inclusive__isnull=True)
+                
+            if self.config.other_filter == c.ONE_DAY_DIFF_BOOL:
+#                 print 'Processing child series %s...' % child_series.id
+                
+                if parent_series.frequency == child_series.frequency:
+                                
+                    all_keys = sorted([
+                        (r.start_date_inclusive, r.end_date_inclusive)
+                        for r in child_series_data
+                    ])
+        
+                    raw_child_data = dict([
+                        ((r.start_date_inclusive, r.end_date_inclusive), r.value)
+                        for r in child_series_data
+                    ])
+                    
+                elif parent_series.frequency == c.MONTHLY and child_series.frequency == c.DAILY:
+                                            
+                    all_keys = []
+                    raw_child_data = {}
+
+                    for p_start_date, p_end_date in parent_data.keys():
+                        _qs = child_series.data.filter(
+                            start_date_inclusive__gte=p_start_date,
+                            end_date_inclusive__lte=p_end_date)
+                        if _qs.exists():
+                            cnt = _qs.count()
+                            s = sum(_.value for _ in _qs.iterator())
+                            raw_child_data[(p_start_date, p_end_date)] = s/float(cnt)
+                            
+                    all_keys = sorted(raw_child_data)
+        
+                else:
+                    raise Skip
+                
+                if child_series.units == c.UNITS_BOOL:
+                    # given a date range, lookup the preceeding date range
+                    last_key = dict([(b, a) for a, b in zip(all_keys, all_keys[offset_days:])])
+                    
+                    child_data = dict(
+                        (current_range, raw_child_data[last_range])
+                        for current_range, last_range in last_key.iteritems()
+                    )
+                else:
+                    # given a date range, lookup the preceeding date range
+                    last_key = dict([(b, a) for a, b in zip(all_keys, all_keys[1+offset_days:])])
+                    
+                    child_data = dict(
+                        (current_range, float(cmp(raw_child_data[current_range], raw_child_data[last_range])))
+                        for current_range, last_range in last_key.iteritems()
+                    )
+    #             pprint(child_data, indent=4)
+    
+    #             child_data2 = dict([
+    #                 ((r.start_date_inclusive + timedelta(days=offset_days-1), r.end_date_inclusive + timedelta(days=offset_days-1)), r.value)
+    #                 for r in child_series.data.all()
+    #             ])
+    #             child_data = dict(
+    #                 (k, cmp(child_data1[k], child_data2[k]))
+    #                 for k in set(child_data1).intersection(child_data2)
+    #             )
+            else:
+                raise NotImplementedError, self.config.other_filter
+            
+            overlapping_keys = set(parent_data).intersection(child_data)
+            #print '%i overlapping keys' % len(overlapping_keys)
+            
+            if overlapping_keys:
+                overlapping_keys = sorted(overlapping_keys)
+                x = [parent_data[k] for k in overlapping_keys]
+                y = [child_data[k] for k in overlapping_keys]
+                 
+                corr, pval = pearsonr(x, y)
+#                 print 'corr:', corr
+#                 print 'pval:', pval
+                #if 'nan' not in str(corr):
+                if not math.isnan(corr):
+                    self.correlation = corr
+                    self.abs_correlation = abs(corr)
+        
+        except Skip:
+            pass
+        
+        self.fresh = True
+        self.save()
+    
+    def save(self, *args, **kwargs):
+        
+        super(Comparison, self).save(*args, **kwargs)
+        
+        if not self.fresh:
+            ComparisonConfig.objects.filter(id=self.config.id).update(fresh=False)
         

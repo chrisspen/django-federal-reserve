@@ -7,6 +7,7 @@ import models
 
 from admin_steroids.utils import view_related_link
 from admin_steroids.queryset import ApproxCountQuerySet
+from admin_steroids.filters import NullListFilter
 
 class FreshListFilter(SimpleListFilter):
     
@@ -192,6 +193,8 @@ class DataAdmin(admin.ModelAdmin):
     )
     
     list_filter = (
+        ('start_date_inclusive', NullListFilter),
+        ('end_date_inclusive', NullListFilter),
     )
     
     readonly_fields = (
@@ -215,3 +218,82 @@ class DataAdmin(admin.ModelAdmin):
         return qs
     
 admin.site.register(models.Data, DataAdmin)
+
+class ComparisonConfigAdmin(admin.ModelAdmin):
+    
+    list_display = (
+        'id',
+        'series',
+        'offset_days',
+        'other_filter',
+        'enabled',
+        'fresh',
+    )
+    
+    raw_id_fields = (
+        'series',
+    )
+    
+    readonly_fields = (
+        'id',
+        'comparisons_link',
+        'fresh',
+    )
+    
+    fields = (
+        'id',
+        'series',
+        'offset_days',
+        'other_filter',
+        'enabled',
+        'fresh',
+        'comparisons_link',
+    )
+    
+    def comparisons_link(self, obj=None):
+        if not obj:
+            return ''
+        return view_related_link(obj, 'comparisons')
+    comparisons_link.allow_tags = True
+    comparisons_link.short_description = 'comparisons'
+    
+admin.site.register(models.ComparisonConfig, ComparisonConfigAdmin)
+
+class ComparisonAdmin(admin.ModelAdmin):
+    
+    list_display = (
+        'id',
+        'config',
+        'series',
+        'fresh',
+        'correlation',
+        'abs_correlation',
+    )
+    
+    raw_id_fields = (
+        'config',
+        'series',
+    )
+    
+    list_filter = (
+        'fresh',
+        ('correlation', NullListFilter),
+    )
+    
+    fields = (
+        'id',
+        'config',
+        'series',
+        'fresh',
+        'correlation',
+    )
+    
+    readonly_fields = (
+        'id',
+        'config',
+        'series',
+        'fresh',
+        'correlation',
+    )
+    
+admin.site.register(models.Comparison, ComparisonAdmin)
