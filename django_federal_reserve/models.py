@@ -341,7 +341,8 @@ class FederalReserveDataSource(DataSource):
                                 series.date_is_start = False
                             else:
                                 series.date_is_start = True
-                            series.save()
+                    series.last_refreshed = date.today()
+                    series.save()
                     
                     if force:
                         series.data.all().update(start_date_inclusive=None, end_date_inclusive=None)
