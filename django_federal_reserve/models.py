@@ -249,6 +249,7 @@ class FederalReserveDataSource(DataSource):
                         Data.objects.bulk_create(series_data_pending)
 #                    print '\r\tLine %.02f%% (%i of %i)' % (100, i2, total2),
 #                    print
+                    series.last_refreshed = date.today()
                     series.save()
                         
                     # Cleanup.
@@ -276,7 +277,7 @@ class FederalReserveDataSource(DataSource):
                     else:
                         q = Series.objects.get_loadable()
                 else:
-                    q = Series.objects.get_stale()
+                    q = Series.objects.get_stale(days=30)
                 
                 if ids:
                     q = q.filter(id__in=ids)
@@ -292,7 +293,12 @@ class FederalReserveDataSource(DataSource):
                     if series.max_date:
                         observation_start = series.max_date - timedelta(days=7)
                     
-                    series_info = fred.series(series.id)['seriess'][0]
+                    try:
+                        series_info = fred.series(series.id)['seriess'][0]
+                    except KeyError:
+                        print>>sys.stderr, 'Series %s is missing seriess: %s' % (series.id, fred.series(series.id),)
+                        continue
+                        
                     #print 'series_info:',series_info
                     last_updated = series_info['last_updated'].strip()
                     series.last_updated = dateutil.parser.parse(last_updated) if last_updated else None
@@ -387,7 +393,7 @@ class SeriesManager(models.Manager):
             q = self
         return q.filter(active=True, enabled=True)
     
-    def get_stale(self, enabled=True, q=None):
+    def get_stale(self, enabled=True, q=None, days=None):
         if q is None:
             q = self
         offset = 1
@@ -404,6 +410,8 @@ class SeriesManager(models.Manager):
             Q(frequency__startswith=c.WEEKLY, max_date__lte=timezone.now()-timedelta(days=7+offset))|\
             Q(frequency__startswith=c.DAILY, max_date__lte=timezone.now()-timedelta(days=1+offset))
         )
+        if days:
+            q = q.filter(Q(last_refreshed__isnull=True)|Q(last_refreshed__lte=date.today()-timedelta(days=days)))
         return q
 
 class Series(models.Model):
@@ -506,6 +514,14 @@ class Series(models.Model):
             If false, indicates the date represents the end of this range.<br/>
             The opposite date in the range should be taken from the adjacent
             data point.'''))
+    
+    last_refreshed = models.DateField(
+        blank=True,
+        null=True,
+        db_index=True,
+        editable=False,
+        help_text=_('''The date when this data was last checked for updates from source.'''),
+    )
     
     class Meta:
         verbose_name_plural = 'series'

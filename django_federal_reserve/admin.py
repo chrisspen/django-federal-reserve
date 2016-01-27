@@ -79,6 +79,7 @@ class SeriesAdmin(admin.ModelAdmin):
         'enabled',
         'fresh',
         'date_is_start',
+        'last_refreshed',
     )
     
     search_fields = (
@@ -110,6 +111,7 @@ class SeriesAdmin(admin.ModelAdmin):
         'fresh',
         'units',
         'date_is_start',
+        'last_refreshed',
     )
     
     actions = (
@@ -143,6 +145,7 @@ class SeriesAdmin(admin.ModelAdmin):
                 'popularity',
                 'min_date',
                 'max_date',
+                'last_refreshed',
             )
         }),
     )
