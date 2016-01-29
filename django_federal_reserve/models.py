@@ -308,17 +308,23 @@ class FederalReserveDataSource(DataSource):
                     series.popularity = series_info['popularity']
                     series.save()
                     
-                    series_data = fred.observations(
-                        series.id,
-                        observation_start=observation_start)
+                    try:
+                        series_data = fred.observations(
+                            series.id,
+                            observation_start=observation_start)
+                    except ValueError as e:
+                        print>>sys.stderr, e
+                        continue
+                        
                     for data in series_data['observations']:
                         #print series, data['date'], data['value']
+                        
                         try:
                             value = float(data['value'])
-                        except ValueError:
+                        except (ValueError, TypeError) as e:
+                            print>>sys.stderr, e
                             continue
-                        except TypeError:
-                            continue
+                            
                         dt = date(*map(int, data['date'].split('-')))
                         data, created = Data.objects.get_or_create(
                             series=series,
