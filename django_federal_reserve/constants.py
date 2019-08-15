@@ -19,11 +19,10 @@ FREQUENCY_CHOICES = (
     (WEEKLY, 'weekly'),
 )
 
-
-SEASONALLY_ADJUSTED = 'SA'# Seasonally Adjusted
-NOT_SEASONALLY_ADJUSTED = 'NSA'# Not Seasonally Adjusted
-SEASONALLY_ADJUSTED_ANNUAL_RATE = 'SAAR'# Seasonally Adjusted Annual Rate
-NOT_APPLICABLE = 'NA'# Not Applicable
+SEASONALLY_ADJUSTED = 'SA' # Seasonally Adjusted
+NOT_SEASONALLY_ADJUSTED = 'NSA' # Not Seasonally Adjusted
+SEASONALLY_ADJUSTED_ANNUAL_RATE = 'SAAR' # Seasonally Adjusted Annual Rate
+NOT_APPLICABLE = 'NA' # Not Applicable
 SMOOTHED_SEASONLLY_ADJUSTED = 'SSA'
 
 ADJUSTED_CHOICES = (
@@ -35,8 +34,6 @@ ADJUSTED_CHOICES = (
 )
 
 ONE_DAY_DIFF_BOOL = 'one-day-diff-bool'
-COMPARISON_FILTER_CHOICES = (
-    (ONE_DAY_DIFF_BOOL, 'one-day-diff-bool'),
-)
+COMPARISON_FILTER_CHOICES = ((ONE_DAY_DIFF_BOOL, 'one-day-diff-bool'),)
 
 UNITS_BOOL = '+1 or 0'

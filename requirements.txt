@@ -1,0 +1,5 @@
+MonthDelta>=0.9.1
+fred>=3.1
+django-data-mirror>=0.3.0
+#-e git://github.com/chrisspen/django-data-mirror.git#egg=django-data-mirror
+django-admin_steroids
